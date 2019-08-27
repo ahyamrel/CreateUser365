@@ -3,12 +3,12 @@ Created By: Mariel Borodkin
 Created Date: 10/8/2019
 
 .PARAMETER XLSXFilePath
-Enter the IP address with CIDR notation.
+Enter the path of the Excel file containing users to create
 
 .EXAMPLE
-CreateUser365.ps1 -XLSXFilePath c:\temp\Project Users.xlsx
+CreateUser365.ps1 -XLSXFilePath "c:\temp\Project Users.xlsx"
 or
-CreateUser365.ps1 c:\temp\Project Users.xlsx
+CreateUser365.ps1 "c:\temp\Project Users.xlsx"
 #>
 
 #region Param
@@ -28,17 +28,22 @@ param(
 
 #endregion Param
 
+#region Input from user
+$domain = ""
+
 #region Functions
 
-<# Function to check the CSV path #>
-
-<# Function to write logs #>
+<# Function to write logs and outputs to console #>
 Function LogWrite{
-   Param ([string]$logstring)
+   Param (
+       [Parameter(Mandatory=$true)][string]$logstring,
+       [string]$color
+   )
+   Write-Host $logstring -ForegroundColor $color
    $logstring | Out-File -FilePath $Logfile -Append -Force
 }
 
-<# Function to pompt Input box#>
+<# Function to pompt Input box #>
 Function InputBox {
     param(
 
@@ -61,7 +66,7 @@ Function InputBox {
     return ($text)
 }
 
-<# Function to promt Yes or No box#>
+<# Function to promt Yes or No box #>
 Function YesNoBox {
     param(
 
@@ -130,16 +135,15 @@ Clear-Host
 #endregion .. Variables
 
 #region Log file init
-LogWrite $LOG_SPLIT
-LogWrite "Started Processing at [$($date)]"
-LogWrite "$($LOG_SPLIT)"
+LogWrite $LOG_SPLIT -color $COLOR_MESSAGE
+LogWrite "Started Processing at [$($date)]" -color $COLOR_MESSAGE 
+LogWrite "$($LOG_SPLIT)" -color $COLOR_MESSAGE
 #endregion .. Log file init
 
 #region Prerequisites
     #region Internet Connectivity
-if (!(Test-Connection 8.8.8.8 -Count 3 -ErrorAction SilentlyContinue)) {
-    Write-Host "Internet connection required for script - Exiting script ERROR CODE $($EXIT_NO_INTERNET)" -ForegroundColor $COLOR_ERROR
-    LogWrite "ERROR: Internet connection required for script - Exiting script ERROR CODE $($EXIT_NO_INTERNET)"
+if (!(Test-Connection 8.8.8.8 -Count 2 -ErrorAction SilentlyContinue)) {
+    LogWrite "ERROR: Internet connection required for script - Exiting script ERROR CODE $($EXIT_NO_INTERNET)" -color $COLOR_MESSAGE
     exit ($EXIT_NO_INTERNET)
 }
     #endregion .. Internet Connectivity
@@ -157,8 +161,7 @@ if (($null -eq (Get-Module -ListAvailable -Name AzureAD)) -or ($null -eq (Get-Mo
         Install-Module PSExcel -Confirm:$False -Force" -ForegroundColor $COLOR_WARNING
     } finally {
         if (($null -eq (Get-Module -ListAvailable -Name AzureAD)) -or ($null -eq (Get-Module -ListAvailable -Name MSOnline)) -or ($null -eq (Get-Module -ListAvailable -Name PSExcel))) {
-            Write-Host "You need to install modules before you continue.. Exiting script ERROR CODE $($EXIT_NO_MODULE)" -ForegroundColor $COLOR_ERROR
-            LogWrite "** ERROR: You need to install modules before you continue.. Exiting script ERROR CODE $($EXIT_NO_MODULE)"
+            LogWrite "** ERROR: You need to install modules before you continue.. Exiting script ERROR CODE $($EXIT_NO_MODULE)" -color $COLOR_ERROR
             exit ($EXIT_NO_MODULE)
         }
     }
@@ -167,53 +170,9 @@ if (($null -eq (Get-Module -ListAvailable -Name AzureAD)) -or ($null -eq (Get-Mo
     #endregion .. Modules installation
 #endregion .. Prerequisites
 
-#region Authentication
-if ((YesNoBox -title "MFA Authentication" -msg "Is your script running account using MFA for authentication?") -eq 0) {
-    Write-Host "Insert your credentials`
-    1. Azure Active Directory `
-    2. Office 365 service `
-    3. Exchange Online powershell" -ForegroundColor $COLOR_WARNING
-    $UserCredential = Get-Credential
-    try {
-        Connect-AzureAD -Credential $UserCredential
-        Connect-MsolService -Credential $UserCredential
-        $a= New-ExoPSSession -ConnectionUri https://outlook.office365.com/powershell-liveid/ -Credential $UserCredential
-        Import-PSSession $a
-    } catch {
-        Write-Host "Authentication failed due to wrong password/MFA requirements - Existing script ERROR CODE $($EXIT_UNAUTHORIZED)" -ForegroundColor $COLOR_ERROR
-        LogWrite "** ERROR: Authentication failed due to wrong password/MFA requirements - Existing script ERROR CODE $($EXIT_UNAUTHORIZED)"
-    }
-} else { # Case user has MFA and need to insert credentials by his own
-    Clear-Host
-    Write-Host "Bring your MFA device on! Authentication manually for the following services: `
-    1. Azure Active Directory `
-    2. Office 365 service `
-    3. Exchange Online powershell" -ForegroundColor Yellow
-    Connect-AzureAD
-    Connect-MsolService
-    $a= New-ExoPSSession -ConnectionUri https://outlook.office365.com/powershell-liveid/
-    Import-PSSession $a -ErrorAction SilentlyContinue
-}
-
-if (($null -eq (Get-AzureADCurrentSessionInfo)) -or ($null -eq (Get-PSSession | Where-Object {$_.ConfigurationName -eq "Microsoft.Exchange" -and $_.State -eq "Opened"}))) {
-    Write-Host "Authentication for services failed - Existing script ERROR CODE $($EXIT_UNAUTHORIZED)" -ForegroundColor $COLOR_ERROR
-    LogWrite "** ERROR: Authentication for services failed - Existing script ERROR CODE $($EXIT_UNAUTHORIZED)"
-    exit ($EXIT_UNAUTHORIZED)
-}
-
-#endregion .. Authentication
-
-#region Setting MFA to users
-Write-Host "Setting up MFA object.. " -ForegroundColor $COLOR_WARNING
-$auth = New-Object -TypeName Microsoft.Online.Administration.StrongAuthenticationRequirement
-$auth.RelyingParty = "*"
-$auth.State = "Enabled"
-$auth.RememberDevicesNotIssuedBefore = (Get-Date)
-#endregion .. Setting MFA to users
-
 #region Data - Skipping first line representing the heade
 $Users = Import-XLSX $XLSXFilePath
-$AllGroups = Get-AzureADGroup
+$Users = $Users | Where-Object {$_.id -ne $null}
 #endregion .. Data insert
 
 #region Approvals before starting
@@ -222,8 +181,7 @@ Write-Host "The following steps are required: `
 * Approve the table to insert by properties (OK to continue)" -ForegroundColor $COLOR_MESSAGE
 $approve = $users | Out-GridView -Title Approval -PassThru
 if ($null -eq $approve) {
-    Write-Host "Didn't approve the table, please modify the fields before running - Exist Error $($EXIT_USER_LEFT)" -ForegroundColor $COLOR_ERROR
-    LogWrite "** FAILED: Didn't approve the table, please modify the fields before running - Exist Error $($EXIT_USER_LEFT)"
+    LogWrite "** FAILED: Didn't approve the table, please modify the fields before running - Exist Error $($EXIT_USER_LEFT)" -color $COLOR_ERROR
     exit ($EXIT_USER_LEFT)
 } else {
     Write-Host "Approved table fields" -ForegroundColor $COLOR_SUCCESS
@@ -245,10 +203,53 @@ if ($null -eq $approve) {
 
 #endregion .. Approvals before starting
 
-#region Create Users
-Write-Host "Starting to create users.. " -ForegroundColor $COLOR_SUCCESS
-LogWrite "------------------------ User creation configuration set ------------------------------"
+#region Authentication
+if ((YesNoBox -title "MFA Authentication" -msg "Is your script running account using MFA for authentication?") -eq 0) {
+    Write-Host "Insert your credentials`
+    1. Azure Active Directory `
+    2. Office 365 service `
+    3. Exchange Online powershell" -ForegroundColor $COLOR_WARNING
+    $UserCredential = Get-Credential
+    try {
+        Connect-AzureAD -Credential $UserCredential
+        Connect-MsolService -Credential $UserCredential
+        $a= New-ExoPSSession -ConnectionUri https://outlook.office365.com/powershell-liveid/ -Credential $UserCredential
+        Import-PSSession $a -AllowClobber
+    } catch {
+        LogWrite "** ERROR: Authentication failed due to wrong password/MFA requirements - Existing script ERROR CODE $($EXIT_UNAUTHORIZED)" -color $COLOR_ERROR
+    }
+} else { # Case user has MFA and need to insert credentials by his own
+    Clear-Host
+    Write-Host "Bring your MFA device on! Authentication manually for the following services: `
+    1. Azure Active Directory `
+    2. Office 365 service `
+    3. Exchange Online powershell" -ForegroundColor Yellow
+    Connect-AzureAD
+    Connect-MsolService
+    $a= New-ExoPSSession -ConnectionUri https://outlook.office365.com/powershell-liveid/
+    Import-PSSession $a -ErrorAction SilentlyContinue
+}
 
+if (($null -eq (Get-AzureADCurrentSessionInfo)) -or ($null -eq (Get-PSSession | Where-Object {$_.ConfigurationName -eq "Microsoft.Exchange" -and $_.State -eq "Opened"}))) {
+    LogWrite "** ERROR: Authentication for services failed - Existing script ERROR CODE $($EXIT_UNAUTHORIZED)" -color $COLOR_ERROR
+    exit ($EXIT_UNAUTHORIZED)
+}
+
+#endregion .. Authentication
+
+#region Setting MFA to users
+Write-Host "Setting up MFA object.. " -ForegroundColor $COLOR_WARNING
+$auth = New-Object -TypeName Microsoft.Online.Administration.StrongAuthenticationRequirement
+$auth.RelyingParty = "*"
+$auth.State = "Enabled"
+$auth.RememberDevicesNotIssuedBefore = (Get-Date)
+#endregion .. Setting MFA to users
+
+#region Create Users
+$AllGroups = Get-AzureADGroup -All $true
+LogWrite "------------------------ User creation configuration set ------------------------------" -color $COLOR_MESSAGE
+
+$ErrorActionPreference = "continue"
 # Run on each user in Excel
 foreach ($User in $Users)
 {
@@ -263,24 +264,28 @@ foreach ($User in $Users)
         $phone = $null
     }
     
-    $AllGroup = ($AllGroups | Where-Object {$_.DisplayName -like "$($user.All_Group)"}).ObjectId
-    $ProjGroup = ($AllGroups | Where-Object {$_.DisplayName -like "$($user.proj)"}).ObjectId
+    $AllGroup = ($AllGroups | Where-Object {$_.DisplayName -like "*$($user.All_Group)*"}).ObjectId
+    $ProjGroup = ($AllGroups | Where-Object {$_.DisplayName -like "*$($user.proj)*"}).ObjectId
     #endregion .. User Properties
     
     #region Create Groups
     if ($null -eq $AllGroup -and ($null -ne $user.All_Group)) {
         New-AzureADGroup -DisplayName $user.All_Group -Description "All group $($User.All_Group)" -MailEnabled $false -SecurityEnabled $true -MailNickName "NotSet"
-        Write-Host "Created All group $($user.All_Group)" -ForegroundColor $COLOR_MESSAGE
-        LogWrite "Created All group: $($user.All_Group)"
+        LogWrite "Created All group: $($user.All_Group)" -color $COLOR_MESSAGE
         Start-Sleep -Seconds 5
+        $AllGroups = Get-AzureADGroup -All $true
+        $AllGroup = ($AllGroups | Where-Object {$_.DisplayName -like "$($user.All_Group)"}).ObjectId
     }
 
-    if (($null -eq $ProjGroup) -and ($null -ne $user.Proj)) {
+    if ($ProjGroup -like "*-*") {
         New-AzureADGroup -DisplayName $user.Proj -Description -Description "Proj group $($User.Proj)" -MailEnabled $false -SecurityEnabled $true -MailNickName "NotSet"
-        Write-Host "Created Project group $($user.Proj)" -ForegroundColor $COLOR_MESSAGE
-        LogWrite "Created Project group: $($user.Proj)"
+        LogWrite "Created Project group: $($user.Proj)" -color $COLOR_MESSAGE
         Start-Sleep -Seconds 5
-    } 
+        $AllGroups = Get-AzureADGroup -All $true
+        $ProjGroup = ($AllGroups | Where-Object {$_.DisplayName -like "$($user.proj)"}).ObjectId
+    } else {
+        $ProjGroup = ($AllGroups | Where-Object {$_.DisplayName -like "$($user.proj)"}).ObjectId
+    }
     #endregion .. Create Groups
 
     #region Set user
@@ -289,11 +294,9 @@ foreach ($User in $Users)
     if ($null -eq (Get-AzureADuser -SearchString $upnName)) {
         New-MsolUser -UserPrincipalName $UPN -DisplayName $fullname -FirstName $user.First_Name -LastName $user.Last_Name -PhoneNumber $phone -MobilePhone $phone -AlternateEmailAddresses $altermail -UsageLocation $USAGE_LOCATION
         Start-Sleep 20
-        Write-Host "New User: $($User.First_name) $($User.Last_Name) ID:$($upnName) was created successfully." -ForegroundColor $COLOR_MESSAGE
-        LogWrite " New User: ID: $($upnName) $($User.First_name) $($User.Last_Name)"
+        LogWrite " New User: ID: $($upnName) $($User.First_name) $($User.Last_Name)" -color $COLOR_MESSAGE
     } else {
-        Write-Host "User: $($User.First_name) $($User.Last_Name) ID:$($upnName) was already created." -ForegroundColor $COLOR_WARNING
-        LogWrite "Already created: ID: $($upnName) $($User.First_name) $($User.Last_Name)"
+        LogWrite "Already created: ID: $($upnName) $($User.First_name) $($User.Last_Name)" -color $COLOR_MESSAGE
     }
 
     # Mechanism to wait if the creation in 365 after AAD takes a little longer than 
@@ -307,7 +310,6 @@ foreach ($User in $Users)
     #endregion .. Set user
 
     #region Define on fields
-    $ErrorActionPreference = "continue"
     if ($User.MFA -like "*yes*") {
         Set-MsolUser -UserPrincipalName $UPN -StrongAuthenticationRequirements $auth
     }
@@ -320,7 +322,7 @@ foreach ($User in $Users)
         Add-MsolGroupMember -GroupMemberObjectId $msolUser.ObjectId -GroupObjectId $LICENSE_EMSE3 -ErrorAction SilentlyContinue
     }
     
-    if ($null -ne $ProjGroup) {
+    if ($ProjGroup -like "*-*") {
         Add-MsolGroupMember -GroupMemberObjectId $msolUser.ObjectId -GroupObjectId $ProjGroup -ErrorAction SilentlyContinue
     }
 
@@ -333,8 +335,14 @@ foreach ($User in $Users)
 Start-Sleep -Seconds 480 
 
 #region Change Primary mail
-Write-Host "Setting primary mails syntax-based.. " -ForegroundColor Green 
-LogWrite "---------------------------- Primary Mailbox configuration set ----------------------------------"
+
+while ($null -eq (Get-PSSession | Where-Object {$_.ConfigurationName -eq "Microsoft.Exchange" -and $_.State -eq "Opened"})) {
+    LogWrite "Connection with Exchange online has been lost, authenticate again" -color $COLOR_WARNING
+    $a= New-ExoPSSession -ConnectionUri https://outlook.office365.com/powershell-liveid/
+    Import-PSSession $a -ErrorAction SilentlyContinue
+}
+
+LogWrite "------------------------- Primary Mailbox configuration set -------------------------------" -color $COLOR_MESSAGE
 
 foreach ($User in $Users) {
     $id = $User.id -replace '\s',''
@@ -344,10 +352,10 @@ foreach ($User in $Users) {
     try {
         Set-Mailbox -Identity "$id" -EmailAddresses "SMTP:$altermail"
     } catch {
-        LogWrite "FAILED: Mail Configuration: $($id) - $ErrorMessage"
+        LogWrite "FAILED: Mail Configuration: $($id) - $ErrorMessage" -color $COLOR_WARNING
     }
 
-    LogWrite "SUCCESFULLY: Mail Configured: $($id)"
+    LogWrite "SUCCESFULLY: Mail Configured: $($id)" -color $COLOR_SUCCESS
 }
 #endregion .. Change Primary mail
 
