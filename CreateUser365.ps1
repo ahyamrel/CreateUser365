@@ -13,6 +13,7 @@ CreateUser365.ps1 "c:\temp\Project Users.xlsx"
 
 #region Param
 param(
+    [Parameter(Mandatory,Position=0)]
     [ValidateScript({
         if (-Not ($_ | Test-Path)) {
             throw "File not found"
@@ -149,16 +150,19 @@ if (!(Test-Connection 8.8.8.8 -Count 2 -ErrorAction SilentlyContinue)) {
     #endregion .. Internet Connectivity
 
     #region Modules installation
-if (($null -eq (Get-Module -ListAvailable -Name AzureAD)) -or ($null -eq (Get-Module -ListAvailable -Name MSOnline)) -or ($null -eq (Get-Module -ListAvailable -Name PSExcel))) {
+if (($null -eq (Get-Module -ListAvailable -Name AzureAD)) -or ($null -eq (Get-Module -ListAvailable -Name MSOnline)) -or ($null -eq (Get-Module -ListAvailable -Name PSExcel)) -or ($null -eq (Get-Module -ListAvailable -Name Microsoft.Exchange.Management.ExoPowershellModule))) {
     try {
         Install-Module AzureAD -Confirm:$False -Force
         Install-Module MSOnline -Confirm:$False -Force
         Install-Module PSExcel -Confirm:$False -Force
+        Install-Module -Name Microsoft.Exchange.Management.ExoPowershellModule
     } catch {
-        Write-Host "Run the following commands in evaluated Powershell Cmdlet: `
+        Write-Host "Approve running the following commands in evaluated Powershell Cmdlet: `
         Install-Module AzureAD -Confirm:$False -Force `
         Install-Module MSOnline -Confirm:$False -Force `
-        Install-Module PSExcel -Confirm:$False -Force" -ForegroundColor $COLOR_WARNING
+        Install-Module PSExcel -Confirm:$False -Force `
+        Install-Module -Name Microsoft.Exchange.Management.ExoPowershellModule" -ForegroundColor $COLOR_WARNING
+        Start-Process powershell.exe -Verb Runas -ArgumentList "Install-Module AzureAD -Force;Install-Module MSOnline -Force; Install-Module PSExcel -Force; Install-Module Install-Module -Name Microsoft.Exchange.Management.ExoPowershellModule -Force"
     } finally {
         if (($null -eq (Get-Module -ListAvailable -Name AzureAD)) -or ($null -eq (Get-Module -ListAvailable -Name MSOnline)) -or ($null -eq (Get-Module -ListAvailable -Name PSExcel))) {
             LogWrite "** ERROR: You need to install modules before you continue.. Exiting script ERROR CODE $($EXIT_NO_MODULE)" -color $COLOR_ERROR
@@ -328,6 +332,7 @@ foreach ($User in $Users)
 
     Add-MsolGroupMember -GroupMemberObjectId $msolUser.ObjectId -GroupObjectId $AllGroup -ErrorAction SilentlyContinue
     #endregion .. Define on fields
+	
 }
 #endregion .. Create Users
 
@@ -342,7 +347,7 @@ while ($null -eq (Get-PSSession | Where-Object {$_.ConfigurationName -eq "Micros
     Import-PSSession $a -ErrorAction SilentlyContinue
 }
 
-LogWrite "------------------------- Primary Mailbox configuration set -------------------------------" -color $COLOR_MESSAGE
+LogWrite "----------------------- Primary Mailbox configuration set -----------------------------" -color $COLOR_MESSAGE
 
 foreach ($User in $Users) {
     $id = $User.id -replace '\s',''
@@ -352,10 +357,10 @@ foreach ($User in $Users) {
     try {
         Set-Mailbox -Identity "$id" -EmailAddresses "SMTP:$altermail"
     } catch {
-        LogWrite "FAILED: Mail Configuration: $($id) - $ErrorMessage" -color $COLOR_WARNING
+        LogWrite " FAILED: Mail Configuration: $($id) - $ErrorMessage" -color $COLOR_WARNING
     }
 
-    LogWrite "SUCCESFULLY: Mail Configured: $($id)" -color $COLOR_SUCCESS
+    LogWrite " SUCCESFULLY: Mail Configured: $($id)" -color $COLOR_SUCCESS
 }
 #endregion .. Change Primary mail
 
