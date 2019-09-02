@@ -176,7 +176,12 @@ if (($null -eq (Get-Module -ListAvailable -Name AzureAD)) -or ($null -eq (Get-Mo
 
 #region Data - Skipping first line representing the heade
 $Users = Import-XLSX $XLSXFilePath
-$Users = $Users | Where-Object {$_.id -ne $null}
+$badUsers = $Users | Where-Object {($_.id -eq $null) -or ($_.First_Name -eq $null -or $_.Last_Name -eq $null) -or ($_.areacode -eq $null -or $_.phone -eq $null) -or ($_.All_Group -eq $null)}
+if ($badUsers) {
+    LogWrite "Removing the following users for empty required cells (First/Last name, Areacode/Phone or All Group)"
+    LogWrite $badUsers -color $COLOR_WARNING
+}
+$Users = $Users | Where-Object {($_.id -ne $null) -and ($_.First_Name -ne $null -or $_.Last_Name -ne $null) -and ($_.areacode -ne $null -and $_.phone -ne $null) -and ($_.All_Group -ne $null)}
 #endregion .. Data insert
 
 #region Approvals before starting
