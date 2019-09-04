@@ -2,14 +2,28 @@
 Created By: Mariel Borodkin
 Created Date: 10/8/2019
 
+.SYNOPSIS
+    Creates 365 Users from Excel table
+.DESCRIPTION
+    Script running and configuring the AD, Office and Exchange mail.
 .PARAMETER XLSXFilePath
-Enter the path of the Excel file containing users to create
+    -XLSXFilePath "<EXCELPATH>" #Enter the path of the Excel file containing users to create
 
 .EXAMPLE
-CreateUser365.ps1 -XLSXFilePath "c:\temp\Project Users.xlsx"
-or
-CreateUser365.ps1 "c:\temp\Project Users.xlsx"
+    CreateUser365.ps1 "c:\temp\Project Users.xlsx"
+    OR
+    CreateUser365.ps1 -XLSXFilePath "c:\temp\Project Users.xlsx"
+
+
+.LINK
+    Scripts:        https://github.com/ahyamrel/CreateUser365
+    Excel Template: 
 #>
+
+#region Input from user
+$domain             = "@idf.il"
+$LICENSE_OFFICE365  = "648b6d87-01af-4b53-8925-96c223929536"
+$LICENSE_EMSE3      = "c0cf3de1-d998-4e36-aa90-8e52bd781157"
 
 #region Param
 param(
@@ -28,9 +42,6 @@ param(
 )
 
 #endregion Param
-
-#region Input from user
-$domain = ""
 
 #region Functions
 
@@ -104,7 +115,7 @@ $date = (get-date -Format o).split('.')[0]
 $date = $date.Replace('T',' ')
 $date = $date.Replace(':','-')
 
-Set-Variable -Name Logfile        -Value "c:\temp\365 Create Time $($date).txt" -Option AllScope
+Set-Variable -Name Logfile        -Value "$($env:USERPROFILE)\365 Create Time $($date).txt" -Option AllScope
 Set-Variable -Name USAGE_LOCATION -Value IL                                     -Option AllScope
 
 <# Constant Variables #>
@@ -127,10 +138,6 @@ Set-Variable -Name COLOR_WARNING       -Value yellow   -Option Constant
 Set-Variable -Name COLOR_SUCCESS       -Value green    -Option Constant
 Set-Variable -Name COLOR_MESSAGE       -Value darkblue -Option Constant
 
-#License groups
-Set-Variable -Name LICENSE_OFFICE365   -Value "648b6d87-01af-4b53-8925-96c223929536" -Option Constant
-Set-Variable -Name LICENSE_EMSE3       -Value "c0cf3de1-d998-4e36-aa90-8e52bd781157" -Option Constant
-
 $ErrorActionPreference = "stop"
 Clear-Host
 #endregion .. Variables
@@ -142,6 +149,11 @@ LogWrite "$($LOG_SPLIT)" -color $COLOR_MESSAGE
 #endregion .. Log file init
 
 #region Prerequisites
+if ($null -eq $domain -or $null -eq $LICENSE_OFFICE365 -or $null -eq $LICENSE_EMSE3) {
+    LogWrite "ERROR: Internet connection required for script - Exiting script ERROR CODE $($EXIT_NO_INTERNET)" -color $COLOR_MESSAGE
+    exit ($EXIT_NO_INTERNET)
+}
+
     #region Internet Connectivity
 if (!(Test-Connection 8.8.8.8 -Count 2 -ErrorAction SilentlyContinue)) {
     LogWrite "ERROR: Internet connection required for script - Exiting script ERROR CODE $($EXIT_NO_INTERNET)" -color $COLOR_MESSAGE
@@ -162,7 +174,8 @@ if (($null -eq (Get-Module -ListAvailable -Name AzureAD)) -or ($null -eq (Get-Mo
         Install-Module MSOnline -Confirm:$False -Force `
         Install-Module PSExcel -Confirm:$False -Force `
         Install-Module -Name Microsoft.Exchange.Management.ExoPowershellModule" -ForegroundColor $COLOR_WARNING
-        Start-Process powershell.exe -Verb Runas -ArgumentList "Install-Module AzureAD -Force;Install-Module MSOnline -Force; Install-Module PSExcel -Force; Install-Module Install-Module -Name Microsoft.Exchange.Management.ExoPowershellModule -Force"
+        Start-Process powershell.exe -Verb Runas -ArgumentList "Install-Module AzureAD -Force;Install-Module MSOnline -Force; Install-Module PSExcel -Force; Install-Module -Name Microsoft.Exchange.Management.ExoPowershellModule -Force"
+        Read-Host "Press Enter AFTER the admin console installed modules required as admin"
     } finally {
         if (($null -eq (Get-Module -ListAvailable -Name AzureAD)) -or ($null -eq (Get-Module -ListAvailable -Name MSOnline)) -or ($null -eq (Get-Module -ListAvailable -Name PSExcel))) {
             LogWrite "** ERROR: You need to install modules before you continue.. Exiting script ERROR CODE $($EXIT_NO_MODULE)" -color $COLOR_ERROR
@@ -274,7 +287,6 @@ foreach ($User in $Users)
     }
     
     $AllGroup = ($AllGroups | Where-Object {$_.DisplayName -like "*$($user.All_Group)*"}).ObjectId
-    $ProjGroup = ($AllGroups | Where-Object {$_.DisplayName -like "*$($user.proj)*"}).ObjectId
     #endregion .. User Properties
     
     #region Create Groups
@@ -286,15 +298,17 @@ foreach ($User in $Users)
         $AllGroup = ($AllGroups | Where-Object {$_.DisplayName -like "$($user.All_Group)"}).ObjectId
     }
 
-    if ($ProjGroup -like "*-*") {
-        New-AzureADGroup -DisplayName $user.Proj -Description -Description "Proj group $($User.Proj)" -MailEnabled $false -SecurityEnabled $true -MailNickName "NotSet"
+    if ($user.proj -like "*-*") {
+        $ProjGroup = ($AllGroups | Where-Object {$_.DisplayName -like "*$($user.proj)*"}).ObjectId
+        New-AzureADGroup -DisplayName $user.Proj -Description "Proj group $($User.Proj)" -MailEnabled $false -SecurityEnabled $true -MailNickName "NotSet"
         LogWrite "Created Project group: $($user.Proj)" -color $COLOR_MESSAGE
         Start-Sleep -Seconds 5
         $AllGroups = Get-AzureADGroup -All $true
         $ProjGroup = ($AllGroups | Where-Object {$_.DisplayName -like "$($user.proj)"}).ObjectId
-    } else {
-        $ProjGroup = ($AllGroups | Where-Object {$_.DisplayName -like "$($user.proj)"}).ObjectId
-    }
+        Start-Sleep -Seconds 1
+        Add-MsolGroupMember -GroupMemberObjectId $msolUser.ObjectId -GroupObjectId $ProjGroup -ErrorAction SilentlyContinue
+    } 
+
     #endregion .. Create Groups
 
     #region Set user
@@ -318,7 +332,7 @@ foreach ($User in $Users)
     
     #endregion .. Set user
 
-    #region Define on fields
+    #region Define other user
     if ($User.MFA -like "*yes*") {
         Set-MsolUser -UserPrincipalName $UPN -StrongAuthenticationRequirements $auth
     }
@@ -331,10 +345,6 @@ foreach ($User in $Users)
         Add-MsolGroupMember -GroupMemberObjectId $msolUser.ObjectId -GroupObjectId $LICENSE_EMSE3 -ErrorAction SilentlyContinue
     }
     
-    if ($ProjGroup -like "*-*") {
-        Add-MsolGroupMember -GroupMemberObjectId $msolUser.ObjectId -GroupObjectId $ProjGroup -ErrorAction SilentlyContinue
-    }
-
     Add-MsolGroupMember -GroupMemberObjectId $msolUser.ObjectId -GroupObjectId $AllGroup -ErrorAction SilentlyContinue
     #endregion .. Define on fields
 	
@@ -356,7 +366,7 @@ LogWrite "----------------------- Primary Mailbox configuration set ------------
 
 foreach ($User in $Users) {
     $id = $User.id -replace '\s',''
-    $altermail = $User.First_Name.split(" ")[0] + $User.Last_Name + "@idf.il"
+    $altermail = $User.First_Name.split(" ")[0] + $User.Last_Name + $domain
     $altermail = $altermail -replace '\s',''
     
     try {
