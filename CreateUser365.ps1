@@ -20,11 +20,6 @@ Created Date: 10/8/2019
     Excel Template: 
 #>
 
-#region Input from user
-$domain             = "@idf.il"
-$LICENSE_OFFICE365  = "648b6d87-01af-4b53-8925-96c223929536"
-$LICENSE_EMSE3      = "c0cf3de1-d998-4e36-aa90-8e52bd781157"
-
 #region Param
 param(
     [Parameter(Mandatory,Position=0)]
@@ -40,6 +35,11 @@ param(
     })]
     [System.IO.FileInfo]$XLSXFilePath
 )
+
+#region Input from user
+$domain             = "@idf.il"
+$LICENSE_OFFICE365  = "648b6d87-01af-4b53-8925-96c223929536"
+$LICENSE_EMSE3      = "c0cf3de1-d998-4e36-aa90-8e52bd781157"
 
 #endregion Param
 
