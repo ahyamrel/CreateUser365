@@ -2,15 +2,30 @@
 Created By: Mariel Borodkin
 Created Date: 28/9/2019
 
-.PARAMETER 
-None. Params required should be added in script
-
+.SYNOPSIS
+    Display GUI representing the organization hierarchy.
+.DESCRIPTION
+    Script going over the inserted conventions, pulling all groups relevant to them
+    and returning the membership of each group.
 .EXAMPLE
 .\dsa.ps1
+.LINK
+    Forums: 
+    Git:        https://github.com/ahyamrel/CreateUser365
 #>
 
-# Params required from user
-$allConventions = "All-","Test-", "Cloud-", "Proj-", "SharedMailbox-"
+<# Conventions - Required from user
+    All-      Group represents Department, for example HR.
+    Licenses- Group represents all licensed members, for example Office365.
+    Proj-     Group represents a specific Project group (can mix different All- groups).
+    Rule-     Group represents rules/policies applied for specific members, for example Conditional Accesses.
+    Test-     Group represents users for tests on before implement on all. Good as pre-prod tests.
+    Intune-   Group represents devices/users relevant to Intune, for example Intune-Android.
+    Cloud-    Group represents users from other clouds 
+#>
+$allConventions = "All-", "Licenses-", "Proj-", "Rule-", "Test-", "Cloud-",  "Intune-"
+
+<# ^ CHANGE CONVENTIONS BASED ON YOUR ORGANIZATION ^ #>
 
 #region Variables
 
@@ -36,13 +51,14 @@ Clear-Host
 #region Prerequisites   
 if ($null -eq (Get-Module -ListAvailable -Name AzureAD)) {
     try {
-        Install-Module AzureAD -Confirm:$False -Force
+        Install-Module AzureAD -Force
     } catch {
-        Write-Host "Prompting admin allow to install module" -ForegroundColor $COLOR_MESSAGE
-        Start-Process powershell.exe -Verb Runas -ArgumentList "-Command {Install-Module AzureAD -Confirm:$False -Force}"
+        Read-Host -Prompt "Module missing. Prompting admin permission request to run: `
+        Install-Module AzureAD -Force `
+        press ENTER to continue"
+        Start-Process powershell.exe -Verb Runas -ArgumentList "Install-Module AzureAD -Force"
     } finally {
         if (($null -eq (Get-Module -ListAvailable -Name AzureAD))) {
-           
             Write-Host "** ERROR: You need to install modules before you continue.. Exiting script ERROR CODE $($EXIT_NO_MODULE)" -ForegroundColor $COLOR_ERROR
             exit ($EXIT_NO_MODULE)
         }
@@ -62,7 +78,6 @@ $allConventions | ForEach-Object {
 }
 
 #region Display GridView
-# Display of the first graph
 $convChoice = $convDirectory.Keys | Sort-Object | Out-GridView -Title "DSA - Organization Conventions" -OutputMode Single
 
 while ($convChoice) {
@@ -70,20 +85,18 @@ while ($convChoice) {
         $groupId = $convDirectory.item($convChoice) | Select-Object DisplayName, Description, ObjectID| Out-GridView -Title "DSA Convention: $($convChoice)" -OutputMode Single
         while ($groupID) {
             Clear-Host
-            $ADGroup = Get-AzureADGroupMember -ObjectId $groupID.ObjectID
+            $ADGroup = Get-AzureADGroupMember -ObjectId $groupID.ObjectID -All $true
             if ($ADGroup) {
                 $ADGroup | Select-Object -Property displayname, mailnickname, Mail| Out-GridView -Title "Group: $($groupID.displayname) - Count: $($ADGroup.Count)" -PassThru
             } else {
                 Write-Host "Group: $($groupID.displayname) is empty" -ForegroundColor Yellow
             }
-            
             $groupID = $convDirectory.item($convChoice) | Out-GridView -Title "DSA - $($convChoice)" -OutputMode Single
         }
-
         $convChoice = $convDirectory.Keys |  Out-GridView -Title "DSA - Organization Conventions" -OutputMode Single
     } else {
         $convChoice = $convDirectory.Keys |  Out-GridView -Title "DSA - $($convChoice) was not found" -OutputMode Single
     }
 }
 
-#endregion Display GridView
+#endregion .. Display GridView
