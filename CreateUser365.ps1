@@ -8,16 +8,14 @@ Created Date: 10/8/2019
     Script running and configuring the AD, Office and Exchange mail.
 .PARAMETER XLSXFilePath
     -XLSXFilePath "<EXCELPATH>" #Enter the path of the Excel file containing users to create
-
 .EXAMPLE
     CreateUser365.ps1 "c:\temp\Project Users.xlsx"
     OR
     CreateUser365.ps1 -XLSXFilePath "c:\temp\Project Users.xlsx"
-
-
 .LINK
-    Scripts:        https://github.com/ahyamrel/CreateUser365
-    Excel Template: 
+    Forums: 
+    Git:            https://github.com/ahyamrel/CreateUser365
+    Excel Template: https://1drv.ms/x/s!Asr72xre3Rkz1Tw7WMMifyE0Asux?e=cFiPHv 
 #>
 
 #region Param
@@ -48,10 +46,13 @@ $LICENSE_EMSE3      = "c0cf3de1-d998-4e36-aa90-8e52bd781157"
 <# Function to write logs and outputs to console #>
 Function LogWrite{
    Param (
-       [Parameter(Mandatory=$true)][string]$logstring,
-       [string]$color
+        [Parameter(Mandatory=$true)][string]$logstring,
+        [string]$color
    )
-   Write-Host $logstring -ForegroundColor $color
+   if ($color) {
+        Write-Host $logstring -ForegroundColor $color
+   }
+
    $logstring | Out-File -FilePath $Logfile -Append -Force
 }
 
@@ -177,12 +178,13 @@ if (($null -eq (Get-Module -ListAvailable -Name AzureAD)) -or ($null -eq (Get-Mo
         Start-Process powershell.exe -Verb Runas -ArgumentList "Install-Module AzureAD -Force;Install-Module MSOnline -Force; Install-Module PSExcel -Force; Install-Module -Name Microsoft.Exchange.Management.ExoPowershellModule -Force"
         Read-Host "Press Enter AFTER the admin console installed modules required as admin"
     } finally {
+        Import-Module PSExcel
         if (($null -eq (Get-Module -ListAvailable -Name AzureAD)) -or ($null -eq (Get-Module -ListAvailable -Name MSOnline)) -or ($null -eq (Get-Module -ListAvailable -Name PSExcel))) {
             LogWrite "** ERROR: You need to install modules before you continue.. Exiting script ERROR CODE $($EXIT_NO_MODULE)" -color $COLOR_ERROR
             exit ($EXIT_NO_MODULE)
         }
     }
-    Import-Module PSExcel 
+    
 }
     #endregion .. Modules installation
 #endregion .. Prerequisites
@@ -271,7 +273,6 @@ $auth.RememberDevicesNotIssuedBefore = (Get-Date)
 $AllGroups = Get-AzureADGroup -All $true
 LogWrite "------------------------ User creation configuration set ------------------------------" -color $COLOR_MESSAGE
 
-$ErrorActionPreference = "continue"
 # Run on each user in Excel
 foreach ($User in $Users)
 {
@@ -298,9 +299,9 @@ foreach ($User in $Users)
         $AllGroup = ($AllGroups | Where-Object {$_.DisplayName -like "$($user.All_Group)"}).ObjectId
     }
 
-    if ($user.proj -like "*-*") {
+    if (($null -eq $user.proj) -and ($user.proj -ne "proj-")) {
         $ProjGroup = ($AllGroups | Where-Object {$_.DisplayName -like "*$($user.proj)*"}).ObjectId
-        New-AzureADGroup -DisplayName $user.Proj -Description "Proj group $($User.Proj)" -MailEnabled $false -SecurityEnabled $true -MailNickName "NotSet"
+        New-AzureADGroup -DisplayName $user.Proj -Description "Proj group $($user.Proj)" -MailEnabled $false -SecurityEnabled $true -MailNickName "NotSet"
         LogWrite "Created Project group: $($user.Proj)" -color $COLOR_MESSAGE
         Start-Sleep -Seconds 5
         $AllGroups = Get-AzureADGroup -All $true
@@ -356,6 +357,7 @@ Start-Sleep -Seconds 480
 
 #region Change Primary mail
 
+# Validate Exchange connection is still going.
 while ($null -eq (Get-PSSession | Where-Object {$_.ConfigurationName -eq "Microsoft.Exchange" -and $_.State -eq "Opened"})) {
     LogWrite "Connection with Exchange online has been lost, authenticate again" -color $COLOR_WARNING
     $a= New-ExoPSSession -ConnectionUri https://outlook.office365.com/powershell-liveid/
