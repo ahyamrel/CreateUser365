@@ -38,6 +38,7 @@ param(
 $domain             = ""
 $LICENSE_OFFICE365  = ""
 $LICENSE_EMSE3      = ""
+
 if (-not ($domain -and $LICENSE_OFFICE365 -and $LICENSE_EMSE3)) {
     LogWrite "Fill the required fields of your organization before continue" -color $COLOR_ERROR
     exit ($EXIT_USER_LEFT)
@@ -282,7 +283,7 @@ foreach ($User in $Users)
 {
     #region User Properties
     $upnName = $User.id -replace '\s',''
-    $UPN = $upnName + "@idf.il"
+    $UPN = $upnName + $domain
     $fullname = $user.First_Name + " " + $user.Last_Name
 
     if (($null -ne $user.areacode) -and ($null -ne $user.phone)) {
@@ -303,7 +304,7 @@ foreach ($User in $Users)
         $AllGroup = ($AllGroups | Where-Object {$_.DisplayName -like "$($user.All_Group)"}).ObjectId
     }
 
-    if (($null -eq $user.proj) -and ($user.proj -ne "proj-")) {
+    if (($null -ne $user.proj) -and ($user.proj -ne "proj-")) {
         $ProjGroup = ($AllGroups | Where-Object {$_.DisplayName -like "*$($user.proj)*"}).ObjectId
         New-AzureADGroup -DisplayName $user.Proj -Description "Proj group $($user.Proj)" -MailEnabled $false -SecurityEnabled $true -MailNickName "NotSet"
         LogWrite "Created Project group: $($user.Proj)" -color $COLOR_MESSAGE
@@ -357,7 +358,7 @@ foreach ($User in $Users)
 #endregion .. Create Users
 
 # Maximal wait time required before creating mail
-Start-Sleep -Seconds 480 
+Start-Sleep -Seconds 30 
 
 #region Change Primary mail
 
