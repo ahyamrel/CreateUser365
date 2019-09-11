@@ -35,10 +35,13 @@ param(
 )
 
 #region Input from user
-$domain             = "@idf.il"
-$LICENSE_OFFICE365  = "648b6d87-01af-4b53-8925-96c223929536"
-$LICENSE_EMSE3      = "c0cf3de1-d998-4e36-aa90-8e52bd781157"
-
+$domain             = ""
+$LICENSE_OFFICE365  = ""
+$LICENSE_EMSE3      = ""
+if (-not ($domain -and $LICENSE_OFFICE365 -and $LICENSE_EMSE3)) {
+    LogWrite "Fill the required fields of your organization before continue" -color $COLOR_ERROR
+    exit ($EXIT_USER_LEFT)
+}
 #endregion Param
 
 #region Functions
@@ -189,12 +192,26 @@ if (($null -eq (Get-Module -ListAvailable -Name AzureAD)) -or ($null -eq (Get-Mo
     #endregion .. Modules installation
 #endregion .. Prerequisites
 
+    #region Check open excel 
+    $excelProcess = Get-Process -Name *excel*
+    if ($null -ne $excelProcess) {
+        $excelProcess = $excelProcess | Select-Object MainWindowTitle
+        # Add if for if name found
+        $fileName = ($XLSXFilePath.Name).Split('\')[-1]
+        if ($excelProcess -like "*$($fileName)*") {
+            YesNoBox -title "Validate opened Excel files" -msg "Excel you're running your script on is open, please close before continue: $($filename)"
+        }
+    }
+    #endregion .. Check open excel 
+
 #region Data - Skipping first line representing the heade
 $Users = Import-XLSX $XLSXFilePath
-$badUsers = $Users | Where-Object {($_.id -eq $null) -or ($_.First_Name -eq $null -or $_.Last_Name -eq $null) -or ($_.areacode -eq $null -or $_.phone -eq $null) -or ($_.All_Group -eq $null)}
+$badUsers = $Users | Where-Object {($_.id -ne $null) -and (($_.First_Name -eq $null -or $_.Last_Name -eq $null) -or ($_.areacode -eq $null -or $_.phone -eq $null) -or ($_.All_Group -eq $null))}
 if ($badUsers) {
-    LogWrite "Removing the following users for empty required cells (First/Last name, Areacode/Phone or All Group)"
-    LogWrite $badUsers -color $COLOR_WARNING
+    LogWrite "Removing the following users for empty required cells (First/Last name, Areacode/Phone or All Group)" -color $COLOR_WARNING
+    $badUsers | ForEach-Object {
+        LogWrite $_.id -color $COLOR_WARNING
+    }
 }
 $Users = $Users | Where-Object {($_.id -ne $null) -and ($_.First_Name -ne $null -or $_.Last_Name -ne $null) -and ($_.areacode -ne $null -and $_.phone -ne $null) -and ($_.All_Group -ne $null)}
 #endregion .. Data insert
@@ -211,19 +228,6 @@ if ($null -eq $approve) {
     Write-Host "Approved table fields" -ForegroundColor $COLOR_SUCCESS
 }
     #endregion .. Users approve
-
-    #region Check open excel 
-    $excelProcess = Get-Process -Name *excel*
-    if ($null -ne $excelProcess) {
-        $allExcel = "You have the following Excel files open:"
-        $excelProcess | ForEach-Object {
-            $excelname = ($_.MainWindowTitle).Split('-')[0]
-            $allExcel = $allExcel + "$($excelname)`n"
-        }
-        $allExcel = $allExcel + "Please check that the Excel you're using is not open before continue" 
-        YesNoBox -title "Validate opened Excel files" -msg $allExcel
-    }
-    #endregion 
 
 #endregion .. Approvals before starting
 
