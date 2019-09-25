@@ -39,10 +39,6 @@ $domain             = ""
 $LICENSE_OFFICE365  = ""
 $LICENSE_EMSE3      = ""
 
-if (-not ($domain -and $LICENSE_OFFICE365 -and $LICENSE_EMSE3)) {
-    LogWrite "Fill the required fields of your organization before continue" -color $COLOR_ERROR
-    exit ($EXIT_USER_LEFT)
-}
 #endregion Param
 
 #region Functions
@@ -146,6 +142,12 @@ Set-Variable -Name COLOR_MESSAGE       -Value darkblue -Option Constant
 $ErrorActionPreference = "stop"
 Clear-Host
 #endregion .. Variables
+
+# Check fields of user
+if (-not ($domain -and $LICENSE_OFFICE365 -and $LICENSE_EMSE3)) {
+    LogWrite "Fill the required fields of your organization before continue" -color $COLOR_ERROR
+    exit ($EXIT_USER_LEFT)
+}
 
 #region Log file init
 LogWrite $LOG_SPLIT -color $COLOR_MESSAGE
@@ -378,11 +380,10 @@ foreach ($User in $Users) {
     
     try {
         Set-Mailbox -Identity "$id" -EmailAddresses "SMTP:$altermail"
+        LogWrite " SUCCESFULLY: Mail Configured: $($id)" -color $COLOR_SUCCESS
     } catch {
         LogWrite " FAILED: Mail Configuration: $($id) - $ErrorMessage" -color $COLOR_WARNING
     }
-
-    LogWrite " SUCCESFULLY: Mail Configured: $($id)" -color $COLOR_SUCCESS
 }
 #endregion .. Change Primary mail
 
