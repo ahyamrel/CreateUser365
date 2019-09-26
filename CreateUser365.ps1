@@ -365,8 +365,9 @@ Start-Sleep -Seconds 30
 #region Change Primary mail
 
 # Validate Exchange connection is still going.
-while ($null -eq (Get-PSSession | Where-Object {$_.ConfigurationName -eq "Microsoft.Exchange" -and $_.State -eq "Opened"})) {
+if ($null -eq (Get-PSSession | Where-Object {$_.ConfigurationName -eq "Microsoft.Exchange" -and $_.State -eq "Opened"})) {
     LogWrite "Connection with Exchange online has been lost, authenticate again" -color $COLOR_WARNING
+    Remove-PSSession $a
     $a= New-ExoPSSession -ConnectionUri https://outlook.office365.com/powershell-liveid/
     Import-PSSession $a -ErrorAction SilentlyContinue
 }
