@@ -15,7 +15,7 @@ Created Date: 10/8/2019
 .LINK
     Forums: 
     Git:            https://github.com/ahyamrel/CreateUser365
-    Excel Template: https://1drv.ms/x/s!Asr72xre3Rkz1Tw7WMMifyE0Asux?e=cFiPHv 
+    Excel Template: https://1drv.ms/x/s!AkZyvbMPcBA_gRkE85dPazE1vxv4
 #>
 
 #region Param
@@ -23,7 +23,7 @@ param(
     [Parameter(Mandatory,Position=0)]
     [ValidateScript({
         $path = $_.Replace('"',"")
-        if (-Not ( Test-Path $path)) {
+        if (-Not (Test-Path $path)) {
             throw "File not found"
         }
         elseif (-Not ($path.split(".") -eq "xlsx") ){
@@ -32,18 +32,17 @@ param(
             return ($true)
         }
     })]
-    [string]$XLSXFilePaths
+    [string]$XLSXFilePath
 )
 
-$XLSXFilePath = Get-ChildItem 
-$XLSXFilePaths.Replace('"',"")
-
-#region Input from user
-$domain             = ""
-$LICENSE_OFFICE365  = ""
-$LICENSE_EMSE3      = ""
+$XLSXFilePath = $XLSXFilePath.Replace('"',"")
 
 #endregion Param
+
+#region Input from user
+Set-Variable -Name domain            -Value "" -Option AllScope
+Set-Variable -Name LICENSE_OFFICE365 -Value "" -Option AllScope
+Set-Variable -Name LICENSE_EMSE3     -Value "" -Option AllScope
 
 #region Functions
 
@@ -124,23 +123,62 @@ Function GetLicenseGroup {
         $GroupName
     )
 
-    $LICENSE_OFFICE365 = ""
-    while (-not $LICENSE_OFFICE365) {
-        $LICENSE_OFFICE365 = InputBox -title "$($Groupname) license inherit Group Name or ObjectID" -msg "Enter Group name or ObjectID:"
-        $group = Get-AzureADGroup -SearchString $LICENSE_OFFICE365
+    $LICENSE_OFFICE = ""
+    while (-not $LICENSE_OFFICE) {
+        $LICENSE_OFFICE = InputBox -title "$($Groupname) license inherit Group Name or ObjectID" -msg "Enter Group name or ObjectID:"
+        $group = Get-AzureADGroup -SearchString $LICENSE_OFFICE
 
-        if (-not $group) { $group = Get-AzureADGroup -ObjectId $LICENSE_OFFICE365 } 
+        if (-not $group) { $group = Get-AzureADGroup -ObjectId $LICENSE_OFFICE } 
 
         if ($group.count -ne 1) {
-            LogWrite -logstring "Group $($LICENSE_OFFICE365) was not found or found one than one group. Please check yourself." -color $COLOR_MESSAGE -bWriteToLog $false
-            $LICENSE_OFFICE365 = ""
+            LogWrite -logstring "Group $($LICENSE_OFFICE) was not found or found one than one group. Please check yourself." -color $COLOR_MESSAGE -bWriteToLog $false
+            $LICENSE_OFFICE = ""
         } else {
-            $LICENSE_OFFICE365 = $group.objectid
+            $LICENSE_OFFICE = $group.objectid
         }
     }
 
-    return ($LICENSE_OFFICE365)
+    return ($LICENSE_OFFICE)
 }
+
+<# Function to Authenticate for user settings #>
+Function Authenticate {
+    try {
+        $tempvar = Get-AzureADTenantDetail 
+    } catch [Microsoft.Open.Azure.AD.CommonLibrary.AadNeedAuthenticationException] {
+        if ((YesNoBox -title "MFA Authentication" -msg "Is your script running account using MFA for authentication?") -eq 0) {
+            Write-Host "Insert your credentials`
+            1. Azure Active Directory `
+            2. Office 365 service `
+            3. Exchange Online powershell" -ForegroundColor $COLOR_WARNING
+            $UserCredential = Get-Credential
+            try {
+                Connect-AzureAD -Credential $UserCredential
+                Connect-MsolService -Credential $UserCredential
+                $a= New-ExoPSSession -ConnectionUri https://outlook.office365.com/powershell-liveid/ -Credential $UserCredential
+                Import-PSSession $a -AllowClobber
+            } catch {
+                LogWrite -logstring "** ERROR: Authentication failed due to wrong password/MFA requirements - Existing script ERROR CODE $($EXIT_UNAUTHORIZED)" -color $COLOR_ERROR -bWriteToLog $true
+            }
+        } else { # Case user has MFA and need to insert credentials by his own
+            Clear-Host
+            Write-Host "Bring your MFA device on! Authentication manually for the following services: `
+            1. Azure Active Directory `
+            2. Office 365 service `
+            3. Exchange Online powershell" -ForegroundColor Yellow
+            Connect-AzureAD
+            Connect-MsolService
+            $a= New-ExoPSSession -ConnectionUri https://outlook.office365.com/powershell-liveid/
+            Import-PSSession $a -ErrorAction SilentlyContinue
+        }
+    }
+
+    if (($null -eq (Get-AzureADCurrentSessionInfo)) -or ($null -eq (Get-PSSession | Where-Object {$_.ConfigurationName -eq "Microsoft.Exchange" -and $_.State -eq "Opened"}))) {
+        LogWrite -logstring "** ERROR: Authentication for services failed - Existing script ERROR CODE $($EXIT_UNAUTHORIZED)" -color $COLOR_ERROR -bWriteToLog $true
+        exit ($EXIT_UNAUTHORIZED)
+    }
+    
+} 
 
 #endregion .. Functions
 
@@ -153,13 +191,14 @@ $date = (get-date -Format o).split('.')[0]
 $date = $date.Replace('T',' ')
 $date = $date.Replace(':','-')
 
-Set-Variable -Name Logfile        -Value "$($env:USERPROFILE)\365 Create Time $($date).txt" -Option AllScope
-Set-Variable -Name USAGE_LOCATION -Value IL                                     -Option AllScope
+Set-Variable -Name userPath       -Value $XLSXFilePath                                      -Option AllScope
+Set-Variable -Name Logfile        -Value "$($env:USERPROFILE)\365 Create\Time $($date).txt" -Option AllScope
+Set-Variable -Name USAGE_LOCATION -Value IL                                                 -Option AllScope
 
 <# Constant Variables #>
 $ErrorActionPreference = "continue"
 
-Set-Variable -Name LOG_SPLIT           -Value "*********************************************************************" -Option Constant
+Set-Variable -Name LOG_SPLIT           -Value "*****************************************************************************" -Option Constant
 
 # Error codes
 Set-Variable -Name EXIT_SUCCESS        -Value 0        -Option Constant
@@ -177,47 +216,21 @@ Set-Variable -Name COLOR_SUCCESS       -Value green    -Option Constant
 Set-Variable -Name COLOR_MESSAGE       -Value darkblue -Option Constant
 
 $ErrorActionPreference = "stop"
+New-Item $logFile -ItemType file -Force -InformationAction SilentlyContinue
 Clear-Host
 #endregion .. Variables
 
-# Check fields of user
-if (-not ($domain -and $LICENSE_OFFICE365 -and $LICENSE_EMSE3)) {
-    $msg = "One of following fields are missing:`nDomain:$($domain)`nOffice:$($LICENSE_OFFICE365)`nEMS:$($LICENSE_EMSE3)`nWould you like to fill them manually?`n (No to add them in script for permanent use)"
-
-    if (YesNoBox -title "Not all required fields are filled" -msg $msg) {
-        LogWrite -logstring "Fill the required fields of your organization before continue" -color $COLOR_WARNING -bWriteToLog $false
-        
-        while (-Not $domain) {
-            $domain = InputBox -title "Domain name input" -msg "Enter domain name(Example:@idf.il):"
-            if ($domain -notlike "@*") {
-                LogWrite -logstring "Domain $($domain) is not valid. Please make it @domain.domain" -color $COLOR_MESSAGE -bWriteToLog $false
-                $domain = ""
-            }
-        }
-
-        if (-not $LICENSE_OFFICE365) {$LICENSE_OFFICE365 = GetLicenseGroup -GroupName "Office 365"}
-        
-        if (-not $LICENSE_EMSE3) {$LICENSE_EMSE3 = GetLicenseGroup -GroupName -GroupName "EMS"}
-    } else {
-        exit($EXIT_USER_LEFT)
-    }
-}
-
 #region Log file init
-LogWrite -logstring $LOG_SPLIT -color $COLOR_MESSAGE
-LogWrite -logstring "Logfile location: $($Logfile)" -color $COLOR_MESSAGE
-LogWrite -logstring "Started Processing at [$($date)]" -color $COLOR_MESSAGE 
-LogWrite -logstring "$($LOG_SPLIT)" -color $COLOR_MESSAGE
+LogWrite -logstring $LOG_SPLIT -color $COLOR_MESSAGE -bWriteToLog $true
+LogWrite -logstring "Logfile location: $($Logfile)" -color $COLOR_MESSAGE -bWriteToLog $true
+LogWrite -logstring "Started Processing at [$($date)]" -color $COLOR_MESSAGE -bWriteToLog $true
+LogWrite -logstring "$($LOG_SPLIT)" -color $COLOR_MESSAGE -bWriteToLog $true
 #endregion .. Log file init
 
 #region Prerequisites
-if ($null -eq $domain -or $null -eq $LICENSE_OFFICE365 -or $null -eq $LICENSE_EMSE3) {
-    LogWrite -logstring "ERROR: Internet connection required for script - Exiting script ERROR CODE $($EXIT_NO_INTERNET)" -color $COLOR_MESSAGE -bWriteToLog $true
-    exit ($EXIT_NO_INTERNET)
-}
 
     #region Internet Connectivity
-if (!(Test-Connection 8.8.8.8 -Count 2 -ErrorAction SilentlyContinue)) {
+if (!(Test-Connection 8.8.8.8 -Count 3 -ErrorAction SilentlyContinue)) {
     LogWrite -logstring "ERROR: Internet connection required for script - Exiting script ERROR CODE $($EXIT_NO_INTERNET)" -color $COLOR_MESSAGE -bWriteToLog $true
     exit ($EXIT_NO_INTERNET)
 }
@@ -245,9 +258,34 @@ if (($null -eq (Get-Module -ListAvailable -Name AzureAD)) -or ($null -eq (Get-Mo
             exit ($EXIT_NO_MODULE)
         }
     }
-    
 }
     #endregion .. Modules installation
+
+    #region Check fields of data
+if (-not ($domain -and $LICENSE_OFFICE365 -and $LICENSE_EMSE3)) {
+    $msg = "One of following fields are missing:`nDomain:$($domain)`nOffice:$($LICENSE_OFFICE365)`nEMS:$($LICENSE_EMSE3)`nWould you like to fill them manually?`n (No to add them in script for permanent use)"
+
+    if ((YesNoBox -title "Not all required fields are filled" -msg $msg) -eq 1) {
+        Authenticate
+        LogWrite -logstring "Fill the required fields of your organization before continue" -color $COLOR_WARNING -bWriteToLog $false
+        
+        while (-Not $domain) {
+            $domain = InputBox -title "Domain name input" -msg "Enter domain name(Example:@microsoft.com):"
+            if ($domain -notlike "@*") {
+                LogWrite -logstring "Domain $($domain) is not valid. Please make it @domain.domain" -color $COLOR_MESSAGE -bWriteToLog $false
+                $domain = ""
+            }
+        }
+
+        if (-not $LICENSE_OFFICE365) {$LICENSE_OFFICE365 = GetLicenseGroup -GroupName "Office 365"}
+        
+        if (-not $LICENSE_EMSE3) {$LICENSE_EMSE3 = GetLicenseGroup -GroupName "EMS"}
+    } else {
+        LogWrite -logstring "User has left to fill the missing fields" -color $COLOR_MESSAGE -bWriteToLog $false
+        exit($EXIT_USER_LEFT)
+    }
+}
+    #endregion .. Check fields of data
 #endregion .. Prerequisites
 
     #region Check open excel 
@@ -255,15 +293,15 @@ if (($null -eq (Get-Module -ListAvailable -Name AzureAD)) -or ($null -eq (Get-Mo
     if ($null -ne $excelProcess) {
         $excelProcess = $excelProcess | Select-Object MainWindowTitle
         # Add if for if name found
-        $fileName = ($XLSXFilePath.Name).Split('\')[-1]
+        $fileName = $userPath.Split('\')[-1]
         if ($excelProcess -like "*$($fileName)*") {
             YesNoBox -title "Validate opened Excel files" -msg "Excel you're running your script on is open, please close before continue: $($filename)"
         }
     }
     #endregion .. Check open excel 
 
-#region Data - Skipping first line representing the heade
-$Users = Import-XLSX $XLSXFilePath
+#region Data - Skipping first line representing the header
+$Users = Import-XLSX $userPath
 $badUsers = $Users | Where-Object {($_.id -ne $null) -and (($_.First_Name -eq $null -or $_.Last_Name -eq $null) -or ($_.areacode -eq $null -or $_.phone -eq $null) -or ($_.All_Group -eq $null))}
 if ($badUsers) {
     LogWrite -logstring "Removing the following users for empty required cells (First/Last name, Areacode/Phone or All Group)" -color $COLOR_WARNING -bWriteToLog $true
@@ -289,39 +327,7 @@ if ($null -eq $approve) {
 
 #endregion .. Approvals before starting
 
-#region Authentication
-if ((YesNoBox -title "MFA Authentication" -msg "Is your script running account using MFA for authentication?") -eq 0) {
-    Write-Host "Insert your credentials`
-    1. Azure Active Directory `
-    2. Office 365 service `
-    3. Exchange Online powershell" -ForegroundColor $COLOR_WARNING
-    $UserCredential = Get-Credential
-    try {
-        Connect-AzureAD -Credential $UserCredential
-        Connect-MsolService -Credential $UserCredential
-        $a= New-ExoPSSession -ConnectionUri https://outlook.office365.com/powershell-liveid/ -Credential $UserCredential
-        Import-PSSession $a -AllowClobber
-    } catch {
-        LogWrite -logstring "** ERROR: Authentication failed due to wrong password/MFA requirements - Existing script ERROR CODE $($EXIT_UNAUTHORIZED)" -color $COLOR_ERROR -bWriteToLog $true
-    }
-} else { # Case user has MFA and need to insert credentials by his own
-    Clear-Host
-    Write-Host "Bring your MFA device on! Authentication manually for the following services: `
-    1. Azure Active Directory `
-    2. Office 365 service `
-    3. Exchange Online powershell" -ForegroundColor Yellow
-    Connect-AzureAD
-    Connect-MsolService
-    $a= New-ExoPSSession -ConnectionUri https://outlook.office365.com/powershell-liveid/
-    Import-PSSession $a -ErrorAction SilentlyContinue
-}
-
-if (($null -eq (Get-AzureADCurrentSessionInfo)) -or ($null -eq (Get-PSSession | Where-Object {$_.ConfigurationName -eq "Microsoft.Exchange" -and $_.State -eq "Opened"}))) {
-    LogWrite -logstring "** ERROR: Authentication for services failed - Existing script ERROR CODE $($EXIT_UNAUTHORIZED)" -color $COLOR_ERROR -bWriteToLog $true
-    exit ($EXIT_UNAUTHORIZED)
-}
-
-#endregion .. Authentication
+Authenticate
 
 #region Setting MFA to users
 Write-Host "Setting up MFA object.. " -ForegroundColor $COLOR_WARNING
@@ -377,8 +383,8 @@ foreach ($User in $Users)
     #region Set user
 
     # Create new user only if not already created
-    if (-Not (Get-MsolUser -UserPrincipalName $UPN)) {
-        New-MsolUser -UserPrincipalName $UPN -DisplayName $fullname -FirstName $user.First_Name -LastName $user.Last_Name -PhoneNumber $phone -MobilePhone $phone -AlternateEmailAddresses $altermail -UsageLocation $USAGE_LOCATION
+    if (-Not (Get-MsolUser -UserPrincipalName $UPN -ErrorAction Ignore)) {
+        $tempvar = New-MsolUser -UserPrincipalName $UPN -DisplayName $fullname -FirstName $user.First_Name -LastName $user.Last_Name -PhoneNumber $phone -MobilePhone $phone -AlternateEmailAddresses $altermail -UsageLocation $USAGE_LOCATION
         Start-Sleep 20
         LogWrite -logstring " New User: ID: $($upnName) $($User.First_name) $($User.Last_Name)" -color $COLOR_MESSAGE -bWriteToLog $true
     } else {
@@ -415,7 +421,7 @@ foreach ($User in $Users)
 #endregion .. Create Users
 
 # Maximal wait time required before creating mail
-Start-Sleep -Seconds 15 
+Start-Sleep -Seconds 30
 
 #region Change Primary mail
 
@@ -442,6 +448,5 @@ foreach ($User in $Users) {
     }
 }
 #endregion .. Change Primary mail
-
 Remove-PSSession $a
 Start-Process $Logfile
