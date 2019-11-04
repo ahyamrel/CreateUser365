@@ -47,7 +47,7 @@ Set-Variable -Name LICENSE_EMSE3     -Value "" -Option AllScope
 #region Functions
 
 <# Function to write logs and outputs to console #>
-Function LogWrite{
+Function LogWrite {
    Param (
         [Parameter(Mandatory=$true)][string]$logstring,
         [string]$color,
@@ -144,7 +144,7 @@ Function GetLicenseGroup {
 <# Function to Authenticate for user settings #>
 Function Authenticate {
     try {
-        $tempvar = Get-AzureADTenantDetail 
+        $tempvar = Get-AzureADTenantDetail
     } catch [Microsoft.Open.Azure.AD.CommonLibrary.AadNeedAuthenticationException] {
         if ((YesNoBox -title "MFA Authentication" -msg "Is your script running account using MFA for authentication?") -eq 0) {
             Write-Host "Insert your credentials`
@@ -169,7 +169,7 @@ Function Authenticate {
             Connect-AzureAD
             Connect-MsolService
             $a= New-ExoPSSession -ConnectionUri https://outlook.office365.com/powershell-liveid/
-            Import-PSSession $a -ErrorAction SilentlyContinue
+            Import-PSSession $a -AllowClobber
         }
     }
 
@@ -179,6 +179,57 @@ Function Authenticate {
     }
     
 } 
+
+<# Function importing modules #>
+function importModules() {
+
+    param(
+    [Parameter(Mandatory,Position=0)]
+    [string[]]$modules
+    )
+
+    $bResult = $true
+    $modules | ForEach-Object {
+
+        # Check if module installed on workstation
+        if ($bResult) {
+            if ($null -eq (Get-Module -ListAvailable $_)) {
+                if (Find-Module ($_ | Select-Object -first 1)) {
+                    if ([bool](([System.Security.Principal.WindowsIdentity]::GetCurrent()).groups -match "S-1-5-32-544")) {
+                            Install-Module $_ -Confirm:$False -Force -AllowClobber
+                            logWrite "$($_) installed from gallery" -bWriteToLog $true
+                        } else {
+                                try {
+                                    logWrite "Approve running the following commands in evaluated Powershell Cmdlet: `
+                                    Install-Module $($_) -Confirm:$False -Force -AllowClobber" -bWriteToLog $false -color $COLOR_WARNING
+                                    Start-Process powershell.exe -Verb Runas -ArgumentList "Install-Module $($_) -Force -AllowClobber" -Wait
+                                } catch {
+                                    logWrite "Error module not installed" -bWriteToLog $true -color $COLOR_ERROR
+                                    $bResult = $False
+                                }     
+                            }
+                    } else  {
+                        LogWrite "$($_) module was not found in Gallery to download" -bWriteToLog $true -color $COLOR_ERROR
+                    }
+
+
+                $m = Get-Module -ListAvailable $_
+                Import-Module -ModuleInfo $m -ErrorAction Ignore
+
+                if (($null -eq (Get-Module -ListAvailable -Name $_))) {
+                    logWrite "** ERROR: You need to install all modules entered: $($modules) before you continue.. Exiting script ERROR CODE ljj" -bWriteToLog $true -color red
+                    $bResult = $False
+                } else {
+                    logWrite "$($_) was installed successfully" -bWriteToLog $true -color $COLOR_SUCCESS
+                }
+            } else {
+                logWrite "$($_) module installed" -bWriteToLog $true -color $COLOR_SUCCESS
+            }
+        }
+    }
+     
+    return ($bResult)
+}
 
 #endregion .. Functions
 
@@ -213,7 +264,7 @@ Set-Variable -Name EXIT_NO_MODULE      -Value 7        -Option Constant
 Set-Variable -Name COLOR_ERROR         -Value red      -Option Constant
 Set-Variable -Name COLOR_WARNING       -Value yellow   -Option Constant
 Set-Variable -Name COLOR_SUCCESS       -Value green    -Option Constant
-Set-Variable -Name COLOR_MESSAGE       -Value darkblue -Option Constant
+Set-Variable -Name COLOR_MESSAGE       -Value blue     -Option Constant
 
 $ErrorActionPreference = "stop"
 New-Item $logFile -ItemType file -Force -InformationAction SilentlyContinue
@@ -237,28 +288,13 @@ if (!(Test-Connection 8.8.8.8 -Count 3 -ErrorAction SilentlyContinue)) {
     #endregion .. Internet Connectivity
 
     #region Modules installation
-if (($null -eq (Get-Module -ListAvailable -Name AzureAD)) -or ($null -eq (Get-Module -ListAvailable -Name MSOnline)) -or ($null -eq (Get-Module -ListAvailable -Name PSExcel)) -or ($null -eq (Get-Module -ListAvailable -Name Microsoft.Exchange.Management.ExoPowershellModule))) {
-    try {
-        Install-Module AzureAD -Confirm:$False -Force
-        Install-Module MSOnline -Confirm:$False -Force
-        Install-Module PSExcel -Confirm:$False -Force
-        Install-Module -Name Microsoft.Exchange.Management.ExoPowershellModule
-    } catch {
-        Write-Host "Approve running the following commands in evaluated Powershell Cmdlet: `
-        Install-Module AzureAD -Confirm:$False -Force `
-        Install-Module MSOnline -Confirm:$False -Force `
-        Install-Module PSExcel -Confirm:$False -Force `
-        Install-Module -Name Microsoft.Exchange.Management.ExoPowershellModule" -ForegroundColor $COLOR_WARNING
-        Start-Process powershell.exe -Verb Runas -ArgumentList "Install-Module AzureAD -Force;Install-Module MSOnline -Force; Install-Module PSExcel -Force; Install-Module -Name Microsoft.Exchange.Management.ExoPowershellModule -Force"
-        Read-Host "Press Enter AFTER the admin console installed modules required as admin"
-    } finally {
-        Import-Module PSExcel
-        if (($null -eq (Get-Module -ListAvailable -Name AzureAD)) -or ($null -eq (Get-Module -ListAvailable -Name MSOnline)) -or ($null -eq (Get-Module -ListAvailable -Name PSExcel))) {
-            LogWrite -logstring "** ERROR: You need to install modules before you continue.. Exiting script ERROR CODE $($EXIT_NO_MODULE)" -color $COLOR_ERROR -bWriteToLog $true
-            exit ($EXIT_NO_MODULE)
-        }
-    }
+if (importModules AzureAD, MSOnline, PSExcel, Microsodsft.Exchange.Management.ExoPowershellModule) {
+    LogWrite -logstring "Finished importing relevant modules.." -color $COLOR_SUCCESS -bWriteToLog $false
+} else {
+    LogWrite -logstring "** ERROR: You need to install modules before you continue.. Exiting script ERROR CODE $($EXIT_NO_MODULE)" -color $COLOR_ERROR -bWriteToLog $true
+    exit ($EXIT_NO_MODULE)
 }
+
     #endregion .. Modules installation
 
     #region Check fields of data
@@ -384,6 +420,7 @@ foreach ($User in $Users)
 
     # Create new user only if not already created
     if (-Not (Get-MsolUser -UserPrincipalName $UPN -ErrorAction Ignore)) {
+        # Create the new account into temp object to not print the details in shell.
         $tempvar = New-MsolUser -UserPrincipalName $UPN -DisplayName $fullname -FirstName $user.First_Name -LastName $user.Last_Name -PhoneNumber $phone -MobilePhone $phone -AlternateEmailAddresses $altermail -UsageLocation $USAGE_LOCATION
         Start-Sleep 20
         LogWrite -logstring " New User: ID: $($upnName) $($User.First_name) $($User.Last_Name)" -color $COLOR_MESSAGE -bWriteToLog $true
@@ -428,9 +465,9 @@ Start-Sleep -Seconds 30
 # Validate Exchange connection is still going.
 if ($null -eq (Get-PSSession | Where-Object {$_.ConfigurationName -eq "Microsoft.Exchange" -and $_.State -eq "Opened"})) {
     LogWrite -logstring "Connection with Exchange online has been lost, authenticate again" -color $COLOR_WARNING -bWriteToLog $false
-    Remove-PSSession $a
+    Get-PSSession | Where-Object {$_.configurationname -like "*Exchange*"} | Remove-PSSession
     $a= New-ExoPSSession -ConnectionUri https://outlook.office365.com/powershell-liveid/
-    Import-PSSession $a -ErrorAction SilentlyContinue
+    Import-PSSession $a -AllowClobber
 }
 
 LogWrite -logstring "----------------------- Primary Mailbox configuration set -----------------------------" -color $COLOR_MESSAGE -bWriteToLog $true
@@ -448,5 +485,5 @@ foreach ($User in $Users) {
     }
 }
 #endregion .. Change Primary mail
-Remove-PSSession $a
+Get-PSSession | Where-Object {$_.configurationname -like "*Exchange*"} | Remove-PSSession
 Start-Process $Logfile
