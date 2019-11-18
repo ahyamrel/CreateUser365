@@ -288,7 +288,7 @@ if (!(Test-Connection 8.8.8.8 -Count 3 -ErrorAction SilentlyContinue)) {
     #endregion .. Internet Connectivity
 
     #region Modules installation
-if (importModules AzureAD, MSOnline, PSExcel, Microsodsft.Exchange.Management.ExoPowershellModule) {
+if (importModules AzureAD, MSOnline, PSExcel, Microsoft.Exchange.Management.ExoPowershellModule) {
     LogWrite -logstring "Finished importing relevant modules.." -color $COLOR_SUCCESS -bWriteToLog $false
 } else {
     LogWrite -logstring "** ERROR: You need to install modules before you continue.. Exiting script ERROR CODE $($EXIT_NO_MODULE)" -color $COLOR_ERROR -bWriteToLog $true
