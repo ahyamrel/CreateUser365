@@ -194,7 +194,7 @@ function importModules() {
         # Check if module installed on workstation
         if ($bResult) {
             if ($null -eq (Get-Module -ListAvailable $_)) {
-                if (Find-Module ($_ | Select-Object -first 1)) {
+                if (Find-Module *"$($_)*") {
                     if ([bool](([System.Security.Principal.WindowsIdentity]::GetCurrent()).groups -match "S-1-5-32-544")) {
                             Install-Module $_ -Confirm:$False -Force -AllowClobber
                             logWrite "$($_) installed from gallery" -bWriteToLog $true
@@ -264,7 +264,7 @@ Set-Variable -Name EXIT_NO_MODULE      -Value 7        -Option Constant
 Set-Variable -Name COLOR_ERROR         -Value red      -Option Constant
 Set-Variable -Name COLOR_WARNING       -Value yellow   -Option Constant
 Set-Variable -Name COLOR_SUCCESS       -Value green    -Option Constant
-Set-Variable -Name COLOR_MESSAGE       -Value blue     -Option Constant
+Set-Variable -Name COLOR_MESSAGE       -Value Magenta  -Option Constant
 
 $ErrorActionPreference = "stop"
 New-Item $logFile -ItemType file -Force -InformationAction SilentlyContinue
@@ -288,7 +288,7 @@ if (!(Test-Connection 8.8.8.8 -Count 3 -ErrorAction SilentlyContinue)) {
     #endregion .. Internet Connectivity
 
     #region Modules installation
-if (importModules AzureAD, MSOnline, PSExcel, Microsodsft.Exchange.Management.ExoPowershellModule) {
+if (importModules AzureAD, MSOnline, PSExcel, Microsoft.Exchange.Management.ExoPowershellModule) {
     LogWrite -logstring "Finished importing relevant modules.." -color $COLOR_SUCCESS -bWriteToLog $false
 } else {
     LogWrite -logstring "** ERROR: You need to install modules before you continue.. Exiting script ERROR CODE $($EXIT_NO_MODULE)" -color $COLOR_ERROR -bWriteToLog $true
@@ -473,16 +473,21 @@ if ($null -eq (Get-PSSession | Where-Object {$_.ConfigurationName -eq "Microsoft
 LogWrite -logstring "----------------------- Primary Mailbox configuration set -----------------------------" -color $COLOR_MESSAGE -bWriteToLog $true
 
 foreach ($User in $Users) {
-    $id = $User.id -replace '\s',''
-    $altermail = $User.First_Name.split(" ")[0] + $User.Last_Name + $domain
-    $altermail = $altermail -replace '\s',''
-    
-    try {
-        Set-Mailbox -Identity "$id" -EmailAddresses "SMTP:$altermail"
-        LogWrite -logstring " SUCCESFULLY: Mail Configured: $($id)" -color $COLOR_SUCCESS -bWriteToLog $true
-    } catch {
-        LogWrite -logstring " FAILED: Mail Configuration: $($id) - $ErrorMessage" -color $COLOR_WARNING -bWriteToLog $true
+	if ($User.OFFICE -like "*yes*") {
+        $id = $User.id -replace '\s',''
+        $altermail = $User.First_Name.split(" ")[0] + $User.Last_Name + $domain
+        $altermail = $altermail -replace '\s',''
+        
+        try {
+            Set-Mailbox -Identity "$id" -EmailAddresses "SMTP:$altermail"
+            LogWrite -logstring " SUCCESFULLY: Mail Configured: $($id)" -color $COLOR_SUCCESS -bWriteToLog $true
+        } catch {
+            LogWrite -logstring " FAILED: Mail Configuration: $($id) - $ErrorMessage" -color $COLOR_WARNING -bWriteToLog $true
+        }
+	} else {
+        LogWrite -logstring "User $($User.id) is not assigned a 365 and has no mailbox" -color $COLOR_MESSAGE -bWriteToLog $true
     }
+
 }
 #endregion .. Change Primary mail
 Get-PSSession | Where-Object {$_.configurationname -like "*Exchange*"} | Remove-PSSession
