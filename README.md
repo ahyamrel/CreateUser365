@@ -2,8 +2,8 @@
 
 This repo includes:
 - *CreateUser365 -* user initiative creation and more with 365 outlook including mails (Supposing E license purchased and assigned to a group)
-- *BulkUser - * Quick asynchronous user creation based on SQL query. 
-- *DSA - * Nice GUI representing alike DSA.msc console from the on-premise based on grid view feature in Powershell and based on user Hirachy in a flat AAD.
+- *BulkUser -* Quick asynchronous user creation based on SQL query. 
+- *DSA -* Nice GUI representing alike DSA.msc console from the on-premise based on grid view feature in Powershell and based on user Hirachy in a flat AAD.
 
 
 ## How to use
