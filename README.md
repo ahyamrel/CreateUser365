@@ -20,6 +20,7 @@ Set-Variable -Name LICENSE_EMSE3     -Value "" -Option AllScope
 3. Fill the Excel template in user information: https://1drv.ms/x/s!AkZyvbMPcBA_gRkE85dPazE1vxv4
 4. Run with the path of the excel, example: CreateUser365.ps1 c:\temp\Project Users.xlsx
 
+##
 ### BulkUser
 1. Clone to a folder
 2. Fill required data in script
@@ -41,6 +42,7 @@ $Params = @{
 ```
 4. Run.
 
+##
 ### DSA
 1. Clone to a folder
 2. Run
